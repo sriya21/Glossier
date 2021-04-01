@@ -3,8 +3,10 @@ import time
 import requests, zipfile, io
 import pandas as pd
 import schedule as schedule
+from pandas import DataFrame
 from pandas.io.json import json_normalize
 from sqlalchemy import create_engine
+from tabulate import tabulate
 
 
 def db_connect():
@@ -63,7 +65,7 @@ def normalize_json(df_json, flag):
     if flag:
         df = json_normalize(df_json)
     else:
-        df = json_normalize(df_json, 'line_items', ['id'], record_prefix='line_items')
+        df = json_normalize(df_json, 'line_items', ['id'], record_prefix='line_items_')
     print("Data frame is normalized")
     return df
 
@@ -134,9 +136,14 @@ def daily_job():
     print("Create user summary metrics")
     df_users = df_orders[['user_id', 'total_price']]
     print("Find out the overall orders every user made with average amount they spent in shopify")
-    df_users_summary = df_users.groupby('user_id').agg(['mean', 'count'])
+    df_users_summary = df_users.groupby('user_id').agg(['mean', 'count']).reset_index()
     print("Insert the user metrics in the users table")
     insert_data_postgres(con, cur, engine, df_users_summary, 'users')
+    df_product = df_line_items[['line_items_product_id', 'line_items_quantity']]
+    df_product_summary = df_product.groupby('line_items_product_id').sum().reset_index()
+    print(df_product_summary.columns.values)
+    print("Insert the product metrics in the products table")
+    insert_data_postgres(con, cur, engine, df_product_summary, 'products')
     print("Terminate the database connection")
     db_terminate(con)
 
@@ -146,9 +153,9 @@ if __name__ == "__main__":
     User needs to schedule this job every day 
     so the this job is scheduled to run at 10:30 AM every day
     """
-    schedule.every().day.at("10:30").do(daily_job)
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # schedule.every().day.at("10:30").do(daily_job)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)
     # Added this function call to test this code
-    #daily_job()
+    daily_job()
