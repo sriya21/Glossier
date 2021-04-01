@@ -17,6 +17,7 @@ def db_connect():
         'aws.com:5432/cleanser_db')
     con = engine.raw_connection()
     cur = con.cursor()
+    print("Connected to postgres database")
     return con, cur, engine
 
 
@@ -39,6 +40,7 @@ def insert_data_postgres(con, cur, engine, df, table_name):
     output.seek(0)
     cur.copy_from(output, table_name, null="")
     con.commit()
+    print("Records are inserted into the table")
 
 
 def db_terminate(con):
@@ -62,6 +64,7 @@ def normalize_json(df_json, flag):
         df = json_normalize(df_json)
     else:
         df = json_normalize(df_json, 'line_items', ['id'], record_prefix='line_items')
+    print("Data frame is normalized")
     return df
 
 
@@ -73,13 +76,17 @@ def zip_file_extraction():
     """
     zip_file_url = "https://s3.amazonaws.com/data-eng-homework/v1/data.zip"
     r = requests.get(zip_file_url)
+    print("Downloaded zip files")
     z = zipfile.ZipFile(io.BytesIO(r.content))
+    print("Zip files are extracted")
     files_list = z.namelist()
     dfs = []
     for file in files_list:
         data = pd.read_json(z.open(file))
         dfs.append(data.orders)
+    print("Collected the json into a data frame")
     df_json = pd.concat(dfs, ignore_index=True)
+    print("Concatenated the data frame")
     return df_json
 
 
@@ -108,17 +115,29 @@ def daily_job():
     Insert the records in their respective tables after scrutinizing the data
     :return:None
     """
+    print("daily job started")
     df_json = zip_file_extraction()
+    print("Extracted and converted the data into data frame with JSON structure")
     con, cur, engine = db_connect()
+    print("Connect to the postgres database")
+    print("Normalize the data to create orders table")
     df_orders = normalize_json(df_json, True)
     df = datatype_conversion(df_orders)
+    print("remove line_items to create it as a new table")
     df_orders = df.drop(columns=['line_items'])
+    print("Create or Replace orders table")
     insert_data_postgres(con, cur, engine, df_orders, 'orders')
+    print("Normalize line_items dataframe")
     df_line_items = normalize_json(df_json, False)
+    print("Create line_items table with id as a foreign key")
     insert_data_postgres(con, cur, engine, df_line_items, 'line_items')
+    print("Create user summary metrics")
     df_users = df_orders[['user_id', 'total_price']]
+    print("Find out the overall orders every user made with average amount they spent in shopify")
     df_users_summary = df_users.groupby('user_id').agg(['mean', 'count'])
+    print("Insert the user metrics in the users table")
     insert_data_postgres(con, cur, engine, df_users_summary, 'users')
+    print("Terminate the database connection")
     db_terminate(con)
 
 
@@ -127,9 +146,9 @@ if __name__ == "__main__":
     User needs to schedule this job every day 
     so the this job is scheduled to run at 10:30 AM every day
     """
-    # schedule.every().day.at("10:30").do(daily_job)
-    # while True:
-    #     schedule.run_pending()
-    #     time.sleep(1)
-    ## Added this function call to test this code
-    daily_job()
+    schedule.every().day.at("10:30").do(daily_job)
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+    # Added this function call to test this code
+    #daily_job()
